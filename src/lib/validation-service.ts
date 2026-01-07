@@ -25,8 +25,40 @@ async function getConfigData(
   opts: ValidationServiceOpts
 ): Promise<{ cfg: TaskConfig; scriptPath: string }> {
   const upgradePath = path.join(CONTRACT_DEPLOYMENTS_ROOT, opts.network, opts.upgradeId);
+
+  // Ensure taskConfigFileName is a simple filename without any path separators
+  if (opts.taskConfigFileName.includes('/') || opts.taskConfigFileName.includes('\\')) {
+    throw new Error(
+      'ValidationService::getConfigData: Invalid taskConfigFileName; path separators are not allowed'
+    );
+  }
+
   const configFileName = `${opts.taskConfigFileName}.json`;
-  const configPath = path.join(upgradePath, 'validations', configFileName);
+  const validationsRoot = path.join(upgradePath, 'validations');
+
+  // Resolve the config path relative to the validations root and ensure it stays within that root
+  let configPath = path.resolve(validationsRoot, configFileName);
+
+  try {
+    const realValidationsRoot = await fs.realpath(validationsRoot);
+    const realConfigPath = await fs.realpath(configPath);
+
+    if (!realConfigPath.startsWith(realValidationsRoot + path.sep)) {
+      throw new Error(
+        'ValidationService::getConfigData: Resolved config path is outside of the validations directory'
+      );
+    }
+
+    configPath = realConfigPath;
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') {
+      throw new Error(
+        `ValidationService::getConfigData: Config file not found: ${configPath}`
+      );
+    }
+    console.error(`❌ Error resolving config path: ${error}`);
+    throw error;
+  }
 
   let configContent: string;
   try {
